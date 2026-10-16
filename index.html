@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Платформа контроля отдела продаж</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">П</div>
+          <div>
+            <h1>Платформа</h1>
+            <small>Контроль отдела продаж</small>
+          </div>
+        </div>
+
+        <nav class="nav">
+          <button class="nav-item active" data-view="projects">Проекты</button>
+          <button class="nav-item" data-view="rops">РОПы</button>
+          <button class="nav-item" data-view="approval">На согласование</button>
+          <button class="nav-item" data-view="pocket">Карманный РОП</button>
+          <button class="nav-item" data-view="airop">ИИ-РОП / Панель</button>
+          <button class="nav-item" data-view="competitors">КонкурентСкан Pro</button>
+        </nav>
+
+        <div class="role-switcher">
+          <span>Вход в систему</span>
+          <select id="roleSelect">
+            <option value="manager">Руководитель</option>
+            <option value="rop">РОП</option>
+          </select>
+          <input id="rolePassword" type="password" placeholder="Пароль" />
+          <button id="loginBtn" class="primary-btn login-btn">Войти</button>
+        </div>
+      </aside>
+
+      <main class="main-content">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Отдел продаж</p>
+            <h2>Сводка по проектам, РОПам и технической карте</h2>
+          </div>
+          <div class="top-actions">
+            <button id="openFunctionalCheck" class="secondary-btn" type="button">Проверка функционала</button>
+            <button class="secondary-btn">Экспорт</button>
+            <button class="primary-btn">+ Новый проект</button>
+          </div>
+        </header>
+
+        <div class="metrics-grid">
+          <div class="metric-card accent">
+            <label>Всего проектов</label>
+            <strong id="totalProjects">0</strong>
+          </div>
+          <div class="metric-card">
+            <label>Активных РОП</label>
+            <strong id="activeRops">0</strong>
+          </div>
+          <div class="metric-card warning">
+            <label>На доработке</label>
+            <strong id="onRevision">0</strong>
+          </div>
+          <div class="metric-card success">
+            <label>Согласовано</label>
+            <strong id="approved">0</strong>
+          </div>
+        </div>
+
+        <section id="notificationCenter" class="notification-panel"></section>
+
+        <section id="projectsView" class="view active">
+          <div class="toolbar">
+            <input type="text" id="projectSearch" placeholder="Поиск проекта или РОП" />
+            <button class="secondary-btn">Фильтр</button>
+          </div>
+          <div id="projectInsights" class="insights-area"></div>
+          <div id="projectAutoSummary" class="auto-summary"></div>
+          <div id="projectTable" class="table"></div>
+          <div id="projectList" class="list"></div>
+        </section>
+
+        <section id="ropsView" class="view">
+          <div class="panel detail-panel">
+            <div class="panel-header">
+              <h3>Сводка по РОПам</h3>
+              <span class="pill accent">Один РОП ведет несколько проектов</span>
+            </div>
+            <div id="ropInsights" class="insights-area"></div>
+            <div id="ropCards" class="rop-grid"></div>
+          </div>
+        </section>
+
+        <section id="approvalView" class="view">
+          <div class="panel detail-panel">
+            <div class="panel-header">
+              <h3>На согласование</h3>
+              <span id="selectedProjectName" class="pill neutral">Список документов и регламентов</span>
+            </div>
+            <div id="approvalInsights" class="insights-area"></div>
+            <div id="approvalList" class="document-list"></div>
+          </div>
+        </section>
+
+        <section id="pocketView" class="view">
+          <div class="panel detail-panel">
+            <div class="panel-header">
+              <h3>Карманный РОП</h3>
+              <span class="pill accent">Проверка сделок и рекомендации AI</span>
+            </div>
+            <p class="ai-privacy-notice">При наличии CRM запись звонка передается в CLODEX для аудита разговора. Запись может содержать голос и персональные данные; сама аудиозапись в платформе не сохраняется.</p>
+
+            <div class="report-controls">
+              <label>
+                Период отчета
+                <select id="reportPeriodSelect">
+                  <option value="7d">7 дней</option>
+                  <option value="30d" selected>30 дней</option>
+                  <option value="90d">90 дней</option>
+                  <option value="quarter">Квартал</option>
+                  <option value="year">Год</option>
+                </select>
+              </label>
+              <label>
+                Ответственный
+                <select id="reportEmployeeSelect">
+                  <option value="">Все сотрудники</option>
+                </select>
+              </label>
+              <label class="deal-filter-search">
+                Поиск сделки
+                <input id="dealSearchInput" type="search" placeholder="Название или ID" />
+              </label>
+              <label>
+                Результат проверки
+                <select id="dealOutcomeSelect">
+                  <option value="">Все результаты</option>
+                  <option value="unchecked">Не проверены</option>
+                  <option value="Норма">Норма</option>
+                  <option value="Нужен контроль">Нужен контроль</option>
+                  <option value="Критично">Критично</option>
+                </select>
+              </label>
+              <button id="refreshDealsBtn" class="secondary-btn" type="button">Обновить сделки</button>
+              <button id="analyzeAllDealsBtn" class="primary-btn" type="button">Проверить все</button>
+              <span id="batchAnalysisStatus" class="batch-analysis-status" role="status" aria-live="polite"></span>
+              <span id="reportPeriodLabel" class="pill neutral">CRM не загружена</span>
+            </div>
+
+            <div id="reportSummary" class="report-summary"></div>
+            <div id="pocketMetrics" class="pocket-metrics"></div>
+            <div id="pocketDeals" class="pocket-deals"></div>
+          </div>
+        </section>
+
+        <section id="airopView" class="view">
+          <div class="panel detail-panel airop-dashboard">
+            <div class="panel-header"><div><p class="eyebrow">Административная панель</p><h3>ИИ-РОП: контроль сделок и подсказки менеджерам</h3></div><button id="aiRopRefreshBtn" class="secondary-btn" type="button">Обновить данные</button></div>
+            <p class="muted">Реальные данные из CRM: поля сделки, задачи, MAX, почта, вложения и записи звонков. AI не заменяет регламент — он показывает следующий шаг.</p>
+            <div id="aiRopMetrics" class="pocket-metrics"></div>
+            <div id="aiRopAlerts" class="airop-alerts"></div>
+            <div class="airop-columns"><section><h4>Рейтинг менеджеров</h4><div id="aiRopManagers" class="airop-list"></div></section><section><h4>Сделки, требующие действия</h4><div id="aiRopActionQueue" class="airop-list"></div></section></div>
+          </div>
+        </section>
+
+
+        <div id="functionalCheckModal" class="modal-backdrop" hidden><section class="settings-modal functional-check-modal" role="dialog" aria-modal="true"><div class="functional-check-heading"><div><p class="eyebrow">Диагностика платформы</p><h3>Проверка функционала</h3></div><button id="closeFunctionalCheck" class="modal-close" type="button">×</button></div><p class="muted">Проверяет локальный сервер, AI, CRM и историю сделки. Тест AI-аудита запускается отдельно.</p><div class="functional-check-actions"><button id="runFunctionalCheck" class="primary-btn" type="button">Запустить проверку</button><label>Сделка для теста<input id="functionalDealId" inputmode="numeric" placeholder="ID сделки (необязательно)" /></label><button id="runFunctionalAnalysis" class="secondary-btn" type="button">Тест AI-аудита</button></div><div id="functionalCheckSummary" class="functional-check-summary" role="status">Проверка еще не запускалась.</div><div id="functionalCheckResults" class="functional-check-results"></div></section></div>
+         <div id="aiSettingsModal" class="modal-backdrop" hidden>
+          <form id="aiSettingsForm" class="settings-modal">
+            <h3>Настройки CLODEX API</h3><p class="muted">Ключ хранится на локальном сервере и не возвращается в браузер.</p>
+            <label>API endpoint<input id="aiBaseUrl" value="https://clodex.xyz/v1" required /></label>
+            <label>Модель анализа текста<input id="aiModel" value="gpt-6-sol" required placeholder="gpt-6-sol или gpt-6-luna" /></label>
+            <label>API-ключ<input id="aiApiKey" type="password" autocomplete="new-password" placeholder="Оставьте пустым, чтобы не менять" /></label>
+            <p id="aiSettingsStatus" class="muted"></p><div class="modal-actions"><button id="closeAiSettings" class="secondary-btn" type="button">Отмена</button><button class="primary-btn" type="submit">Сохранить</button></div>
+          </form>
+        </div>
+
+        <section id="stagesView" class="view">
+          <div class="panel detail-panel">
+            <div class="panel-header">
+              <h3>Техническая карта проекта</h3>
+              <span id="selectedProjectNameAlt" class="pill neutral">Выберите проект</span>
+            </div>
+            <div id="stageList" class="stage-list"></div>
+            <div id="documentList" class="document-list"></div>
+          </div>
+        </section>
+      </main>
+
+      <aside class="details-panel">
+        <div class="details-header">
+          <h3>Детали проекта</h3>
+        </div>
+
+        <div id="taskDetails" class="task-details">
+          <p class="empty-state">Выберите проект, этап или РОП для просмотра детализации</p>
+        </div>
+      </aside>
+    </div>
+
+    <script src="script.js?v=20261016-max-messenger-1"></script>
+  </body>
+</html>
