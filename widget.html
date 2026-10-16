@@ -6,8 +6,12 @@
   const showError = (e) => { state.className='state error'; state.textContent=e?.message || 'Не удалось получить анализ'; };
   async function run() {
     if (!window.EnvyCrmWidget || typeof window.EnvyCrmWidget.getDeal !== 'function') throw new Error('Откройте расширение внутри карточки сделки EnvyCRM.');
-    const deal = await window.EnvyCrmWidget.getDeal();
-    const id = deal?.id || deal?.deal_id;
+    const fromQuery = new URLSearchParams(location.search).get('deal_id');
+    let id = fromQuery;
+    if (!id && window.EnvyCrmWidget && typeof window.EnvyCrmWidget.getDeal === 'function') {
+      const deal = await window.EnvyCrmWidget.getDeal();
+      id = deal?.id || deal?.deal_id;
+    }
     if (!id) throw new Error('EnvyCRM не передала ID текущей сделки.');
     title.textContent = `Подсказка по сделке №${esc(id)}`;
     state.textContent = 'Анализирую карточку, задачи, MAX, письма и звонки…';

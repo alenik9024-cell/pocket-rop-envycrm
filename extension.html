@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ИИ-РОП</title><script src="https://cdn.saas-support.com/crm_assets/build/widget/js/envycrmwidget.min.js"></script></head><body><script>
+(function () {
+  function init() {
+    var params = {
+      'before-deal-task': function (crm) {
+        var dealId = crm && (crm.dealID || crm.deal_id || '');
+        var clientId = crm && (crm.clientID || crm.client_id || '');
+        var query = '?deal_id=' + encodeURIComponent(dealId) + '&client_id=' + encodeURIComponent(clientId);
+        return [{
+          title: 'ИИ-РОП',
+          events: ['deal::update-value', 'client::update-value'],
+          content: {
+            type: 'iframe',
+            url: 'https://rop-193-124-65-29.sslip.io/widget.html' + query,
+            height: 500
+          }
+        }];
+      }
+    };
+    if (window.EnvyCrmWidget && typeof window.EnvyCrmWidget.init === 'function') {
+      window.EnvyCrmWidget.init(params);
+    }
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+}());
+</script></body></html>
