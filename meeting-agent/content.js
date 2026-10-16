@@ -33,11 +33,8 @@
     catch (error) { const root = panel('Meeting Agent', 'Контекст запуска не сохранён.'); status(root, error.message, true); return; }
     if (!context) return;
     await setContext(context);
-    const root = panel('Meeting Agent: контекст готов', `Сделка #${context.dealId}. Откройте Telemost по ссылке ниже.`);
-    const link = document.createElement('a');
-    link.href = context.telemostUrl; link.target = '_blank'; link.rel = 'noopener'; link.textContent = 'Открыть встречу в новой вкладке';
-    link.style.color = '#9fc2ff'; root.querySelector('#meeting-agent-fields').append(link);
-    status(root, 'Контекст сохранён только в расширении.');
+    // CRM context is stored silently; the visible control belongs in Telemost only.
+
   }
 
   async function showTelemostPanel() {
