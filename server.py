@@ -39,6 +39,7 @@ AI_ALLOWED_HOSTS = {
     for hostname in os.getenv('AI_ALLOWED_HOSTS', 'clodex.xyz').split(',')
     if hostname.strip()
 }
+ADMIN_USER_IDS = {'796108'}
 
 
 @contextmanager
@@ -111,7 +112,6 @@ def save_ai_configuration(payload):
                 values[key.strip()] = value.strip()
     values['AI_BASE_URL'] = base_url
     values['AI_MODEL'] = model
-    values['AI_ALLOWED_HOSTS'] = 'clodex.xyz'
     if api_key:
         values['AI_API_KEY'] = api_key
     env_path.write_text('\n'.join(f'{key}={value}' for key, value in values.items()) + '\n', encoding='utf-8')
@@ -1815,6 +1815,9 @@ class PlatformHandler(SimpleHTTPRequestHandler):
                 period = query.get('period', ['30d'])[0]
                 employee_value = query.get('employee_id', [''])[0]
                 project_id = query.get('project_id', ['default'])[0]
+                admin_user_id = query.get('admin_user_id', [''])[0]
+                if admin_user_id and admin_user_id not in ADMIN_USER_IDS:
+                    raise RuntimeError('Сводка отдела продаж доступна только администратору.')
                 employee_id = int(employee_value) if employee_value else None
                 connector = crm_connector(project_id)
                 json_response(self, 200, connector.list_deals(period, employee_id))
