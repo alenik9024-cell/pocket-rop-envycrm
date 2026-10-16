@@ -1,4 +1,5 @@
 import base64
+import binascii
 import json
 import html
 import os
@@ -1859,6 +1860,38 @@ class PlatformHandler(SimpleHTTPRequestHandler):
                 meeting_json_response(self, 201, session)
             except (ValueError, json.JSONDecodeError, TypeError) as error:
                 meeting_json_response(self, 400, {'error': str(error)})
+            return
+        audio_match = re.fullmatch(r'/api/meetings/([a-f0-9]{32})/audio', parsed.path)
+        if audio_match:
+            audio = None
+            transcript = None
+            try:
+                length = int(self.headers.get('Content-Length', '0'))
+                if length <= 0 or length > 30 * 1024 * 1024:
+                    raise ValueError('Аудио встречи пустое или превышает лимит 30 МБ.')
+                payload = json.loads(self.rfile.read(length).decode('utf-8'))
+                audio = base64.b64decode(str(payload.get('audio_base64') or ''), validate=True)
+                session = get_meeting(audio_match.group(1))
+                if not session or not audio:
+                    raise ValueError('Сессия встречи или аудио не найдены.')
+                connector = crm_connector('default')
+                deal = connector.get_deal(session['deal_id'])
+                timeline = connector.get_timeline(session['deal_id'])
+                transcript, _duration = transcribe_audio_bytes(audio, payload.get('format', 'webm'))
+                result = analyze_deal_evidence(deal, timeline, transcript)
+                result['transcript'] = ''
+                review = save_review(session['deal_id'], result, 'default')
+                summary = result.get('deal_summary') or result.get('analysis') or 'Резюме встречи сформировано.'
+                agreements = result.get('agreements') if isinstance(result.get('agreements'), list) else []
+                saved = save_meeting_summary(session['id'], summary, agreements)
+                meeting_json_response(self, 201, {'meeting_id': session['id'], 'deal_id': session['deal_id'], 'summary': saved, 'review': review})
+            except (ValueError, json.JSONDecodeError, TypeError, binascii.Error) as error:
+                meeting_json_response(self, 400, {'error': str(error)})
+            except (RuntimeError, HTTPError, URLError) as error:
+                meeting_json_response(self, 502, {'error': str(error)})
+            finally:
+                audio = None
+                transcript = None
             return
         if parsed.path in ('/api/settings/ai', '/api/competitor-scan/analyze'):
             try:

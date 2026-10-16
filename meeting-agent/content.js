@@ -4,7 +4,7 @@
   const storageKey = 'meetingAgentContext';
   let recorder;
   let stream;
-  let recordedChunks = [];
+  let sessionId;
 
   const setContext = (context) => chrome.storage.local.set({ [storageKey]: context });
   const getContext = () => new Promise(resolve => chrome.storage.local.get(storageKey, result => resolve(result[storageKey] || null)));
@@ -69,12 +69,29 @@
         const audioTracks = stream.getAudioTracks();
         if (!audioTracks.length) throw new Error('Браузер не вернул аудиодорожку. Выберите вкладку Telemost и включите звук.');
         const audioOnly = new MediaStream(audioTracks);
+        sessionId = registered.id;
         const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
         recorder = new MediaRecorder(audioOnly, { mimeType: mime });
-        recorder.ondataavailable = event => { if (event.data.size) recordedChunks.push(event.data); };
-        recorder.onstop = () => { stream?.getTracks().forEach(track => track.stop()); recordedChunks = []; status(root, 'Транскрипция остановлена. Временные аудиоданные удалены из памяти; аудиофайл не сохраняется.'); };
-        recordedChunks = [];
-        recorder.start(1000);
+        const chunks = [];
+        recorder.ondataavailable = event => { if (event.data.size) chunks.push(event.data); };
+        recorder.onstop = async () => {
+          stream?.getTracks().forEach(track => track.stop());
+          stream = null;
+          stop.disabled = true;
+          status(root, 'Обрабатываю встречу локально…');
+          try {
+            const blob = new Blob(chunks, { type: mime });
+            const bytes = new Uint8Array(await blob.arrayBuffer());
+            let binary = '';
+            for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+            const result = await fetch(`${api}/api/meetings/${sessionId}/audio`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ audio_base64: btoa(binary), format: 'webm' }) });
+            const payload = await result.json();
+            if (!result.ok) throw new Error(payload.error || 'Не удалось сформировать резюме.');
+            status(root, 'Резюме и договорённости сохранены в сделке. Аудио и стенограмма удалены.');
+          } catch (error) {
+            status(root, error.message || 'Не удалось обработать встречу.', true);
+          }
+        };        recorder.start(1000);
         stop.disabled = false;
         status(root, `Транскрипция активна. Сессия ${registered.id.slice(0, 8)}…`);
       } catch (error) {
