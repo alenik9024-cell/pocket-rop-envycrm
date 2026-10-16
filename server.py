@@ -1177,29 +1177,29 @@ def public_timeline(timeline):
     }
 
 
-def call_recording_from_timeline(timeline, deal=None):
+def call_recordings_from_timeline(timeline, deal=None):
     if not isinstance(timeline, dict) or timeline.get('status') != 'available':
-        return None
+        return []
     candidates = []
     if isinstance(deal, dict):
         root_link = recording_reference(deal)
-        # A CRM may omit duration or return it in a different call-log field.
-        # The recording download is the authoritative check; do not hide a
-        # usable recording merely because metadata is incomplete/short.
         if root_link:
             candidates.append((str(deal.get('updated_at') or deal.get('created_at') or ''), root_link, None))
     for event in timeline.get('events', []):
-        record_link = event.get('_recording_url') if isinstance(event, dict) else None
-        duration = parse_duration_seconds(event.get('duration_seconds')) if isinstance(event, dict) else None
-        # Presence of a recording URL is stronger evidence than the optional
-        # status/duration metadata. fetch_call_recording() still verifies that
-        # CRM returns non-empty audio before AI analysis starts.
+        if not isinstance(event, dict):
+            continue
+        record_link = event.get('_recording_url')
         if record_link:
-            candidates.append((str(event.get('occurred_at') or ''), record_link, duration))
-    if candidates:
-        candidates.sort(key=lambda item: item[0])
-        return candidates[-1][1]
-    return None
+            candidates.append((str(event.get('occurred_at') or ''), str(record_link), parse_duration_seconds(event.get('duration_seconds'))))
+    unique = {}
+    for occurred_at, link, duration in candidates:
+        unique.setdefault(link, (occurred_at, link, duration))
+    return sorted(unique.values(), key=lambda item: item[0])
+
+
+def call_recording_from_timeline(timeline, deal=None):
+    recordings = call_recordings_from_timeline(timeline, deal)
+    return recordings[-1][1] if recordings else None
 
 
 def fetch_call_recording(record_link, configuration=None):
@@ -2025,17 +2025,20 @@ class PlatformHandler(SimpleHTTPRequestHandler):
             timeline = connector.get_timeline(deal_id)
             if timeline.get('status') != 'available':
                 raise RuntimeError(timeline.get('reason') or 'История сделки недоступна.')
-            record_link = call_recording_from_timeline(timeline, deal)
-            transcript = None
-            if record_link:
-                diagnostic_log(f'recording reference found: deal_id={deal_id}')
-                duration = next((event.get('duration_seconds') for event in timeline.get('events', [])
-                                 if event.get('_recording_url') == record_link), None)
+            recordings = call_recordings_from_timeline(timeline, deal)
+            transcripts = []
+            for occurred_at, record_link, duration in recordings:
+                diagnostic_log(f'recording reference found: deal_id={deal_id}, occurred_at={occurred_at}')
                 try:
-                    transcript = transcript_for_deal(record_link, deal_id, project_id, connector.configuration, duration)
+                    text = transcript_for_deal(record_link, deal_id, project_id, connector.configuration, duration)
+                    if text:
+                        transcripts.append({'occurred_at': occurred_at, 'recording_url': record_link, 'transcript': text})
                 except RuntimeError as error:
                     diagnostic_log(f'recording audit unavailable: deal_id={deal_id}: {error}')
-            diagnostic_log(f'AI evidence analysis start: deal_id={deal_id}, call={bool(transcript)}')
+            transcript = '\\n\\n'.join(
+                f"Звонок {item['occurred_at']}: {item['transcript']}" for item in transcripts
+            ) or None
+            diagnostic_log(f'AI evidence analysis start: deal_id={deal_id}, calls={len(recordings)}, transcribed={len(transcripts)}')
             result = analyze_deal_evidence(deal, timeline, transcript)
             diagnostic_log(f'AI evidence analysis completed: deal_id={deal_id}')
             review = save_review(deal_id, result, project_id)
