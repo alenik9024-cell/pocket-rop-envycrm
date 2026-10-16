@@ -1,9 +1,21 @@
 <!doctype html>
-<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ИИ-РОП</title><script src="https://cdn.saas-support.com/crm_assets/build/widget/js/envycrmwidget.min.js"></script><style>body{font:14px Arial,sans-serif;margin:0;color:#17212b;background:#fff}.box{padding:14px}.eyebrow{font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.08em}.state{padding:10px;border-radius:8px;background:#f1f5f9}.hint{border-left:4px solid #16a36a;background:#f0faf4;padding:12px;border-radius:8px;margin-top:10px}.hint b,.hint span{display:block}.hint span{margin-top:6px;font-weight:600}.hint small{display:block;margin-top:7px;color:#64748b}.error{color:#a33;background:#fff1f1}.steps{margin:12px 0 0;padding-left:20px}.steps li{margin:8px 0}.steps b{display:block}.muted{color:#64748b}</style></head><body><main class="box"><div class="eyebrow">ИИ-РОП</div><h3 id="title">Подсказка по сделке</h3><div id="state" class="state">Получаю текущую сделку из EnvyCRM…</div><section id="content"></section><section id="meeting-launch" style="margin-top:14px;padding:12px;border:1px solid #dbe4ee;border-radius:8px"><b>Видеовстреча</b><p class="muted">Запустите Telemost из этой сделки, чтобы резюме привязалось к правильной карточке.</p><input id="telemost-url" placeholder="https://telemost.yandex.ru/j/…" style="width:100%;box-sizing:border-box;padding:8px;margin:6px 0"><button id="start-meeting" type="button">Начать встречу</button><div id="meeting-launch-status" class="muted" style="margin-top:6px"></div></section></main><script>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ИИ-РОП</title><script src="https://cdn.saas-support.com/crm_assets/build/widget/js/envycrmwidget.min.js"></script><style>body{font:14px Arial,sans-serif;margin:0;color:#17212b;background:#fff}.box{padding:14px}.eyebrow{font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.08em}.state{padding:10px;border-radius:8px;background:#f1f5f9}.hint{border-left:4px solid #16a36a;background:#f0faf4;padding:12px;border-radius:8px;margin-top:10px}.hint b,.hint span{display:block}.hint span{margin-top:6px;font-weight:600}.hint small{display:block;margin-top:7px;color:#64748b}.error{color:#a33;background:#fff1f1}.steps{margin:12px 0 0;padding-left:20px}.steps li{margin:8px 0}.steps b{display:block}.muted{color:#64748b}</style></head><body><main class="box"><div class="eyebrow">ИИ-РОП</div><h3 id="title">Подсказка по сделке</h3><div id="state" class="state">Карточка готова. Анализ запускается вручную.</div><section id="analysis-controls" style="margin-top:12px;padding:12px;border:1px solid #dbe4ee;border-radius:8px"><button id="analyze-deal" type="button">Анализировать эту сделку</button> <button id="analyze-crm" type="button">Сводный анализ CRM</button><div id="analysis-status" class="muted" style="margin-top:8px"></div></section><section id="content"></section><section id="meeting-launch" style="margin-top:14px;padding:12px;border:1px solid #dbe4ee;border-radius:8px"><b>Видеовстреча</b><p class="muted">Запустите Telemost из этой сделки, чтобы резюме привязалось к правильной карточке.</p><input id="telemost-url" placeholder="https://telemost.yandex.ru/j/…" style="width:100%;box-sizing:border-box;padding:8px;margin:6px 0"><button id="start-meeting" type="button">Начать встречу</button><div id="meeting-launch-status" class="muted" style="margin-top:6px"></div></section></main><script>
 (() => {
   const state = document.getElementById('state'), content = document.getElementById('content'), title = document.getElementById('title');
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const showError = (e) => { state.className='state error'; state.textContent=e?.message || 'Не удалось получить анализ'; };
+  document.getElementById('analyze-deal').addEventListener('click', () => { window.__manualAnalysis = true; run(); });
+  document.getElementById('analyze-crm').addEventListener('click', async () => {
+    const note = document.getElementById('analysis-status'); note.textContent = 'Получаю сделки без запуска AI-запросов…';
+    try {
+      const r = await fetch('/api/pocket/deals?period=30d&project_id=default'); const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Не удалось получить сделки.');
+      const rows = Array.isArray(data) ? data : (data.deals || data.items || []); const counts = {};
+      rows.forEach(d => { const k = d.outcome || d.status_text || 'Без анализа'; counts[k] = (counts[k] || 0) + 1; });
+      content.innerHTML = `<section><b>Сводный анализ CRM за 30 дней</b><p>Сделок: ${rows.length}. AI-запросы не выполнялись.</p><ul>${Object.entries(counts).map(([k,v]) => `<li>${esc(k)}: ${v}</li>`).join('')}</ul><p class="muted">Для AI-сводки сначала запустите анализ нужных сделок кнопкой слева, затем обновите сводку.</p></section>`;
+      state.textContent = 'Сводка CRM готова'; note.textContent = 'Стоимость AI-запросов: 0.';
+    } catch (e) { note.textContent = e.message; showError(e); }
+  });
   function setupMeetingLaunch(id) {
     const input = document.getElementById('telemost-url'), button = document.getElementById('start-meeting'), note = document.getElementById('meeting-launch-status');
     const supplied = new URLSearchParams(location.search).get('telemost_url');
@@ -28,6 +40,7 @@
       id = deal?.id || deal?.deal_id;
     }
     if (!id) throw new Error('EnvyCRM не передала ID текущей сделки.');
+    if (!window.__manualAnalysis) { setupMeetingLaunch(id); title.textContent = `Подсказка по сделке №${esc(id)}`; return; }
     setupMeetingLaunch(id);
     title.textContent = `Подсказка по сделке №${esc(id)}`;
     state.textContent = 'Анализирую карточку, задачи, MAX, письма и звонки…';
