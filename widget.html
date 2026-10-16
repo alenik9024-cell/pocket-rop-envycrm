@@ -1,9 +1,24 @@
 <!doctype html>
-<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ИИ-РОП</title><script src="https://cdn.saas-support.com/crm_assets/build/widget/js/envycrmwidget.min.js"></script><style>body{font:14px Arial,sans-serif;margin:0;color:#17212b;background:#fff}.box{padding:14px}.eyebrow{font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.08em}.state{padding:10px;border-radius:8px;background:#f1f5f9}.hint{border-left:4px solid #16a36a;background:#f0faf4;padding:12px;border-radius:8px;margin-top:10px}.hint b,.hint span{display:block}.hint span{margin-top:6px;font-weight:600}.hint small{display:block;margin-top:7px;color:#64748b}.error{color:#a33;background:#fff1f1}.steps{margin:12px 0 0;padding-left:20px}.steps li{margin:8px 0}.steps b{display:block}.muted{color:#64748b}</style></head><body><main class="box"><div class="eyebrow">ИИ-РОП</div><h3 id="title">Подсказка по сделке</h3><div id="state" class="state">Получаю текущую сделку из EnvyCRM…</div><section id="content"></section></main><script>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ИИ-РОП</title><script src="https://cdn.saas-support.com/crm_assets/build/widget/js/envycrmwidget.min.js"></script><style>body{font:14px Arial,sans-serif;margin:0;color:#17212b;background:#fff}.box{padding:14px}.eyebrow{font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.08em}.state{padding:10px;border-radius:8px;background:#f1f5f9}.hint{border-left:4px solid #16a36a;background:#f0faf4;padding:12px;border-radius:8px;margin-top:10px}.hint b,.hint span{display:block}.hint span{margin-top:6px;font-weight:600}.hint small{display:block;margin-top:7px;color:#64748b}.error{color:#a33;background:#fff1f1}.steps{margin:12px 0 0;padding-left:20px}.steps li{margin:8px 0}.steps b{display:block}.muted{color:#64748b}</style></head><body><main class="box"><div class="eyebrow">ИИ-РОП</div><h3 id="title">Подсказка по сделке</h3><div id="state" class="state">Получаю текущую сделку из EnvyCRM…</div><section id="content"></section><section id="meeting-launch" style="margin-top:14px;padding:12px;border:1px solid #dbe4ee;border-radius:8px"><b>Видеовстреча</b><p class="muted">Запустите Telemost из этой сделки, чтобы резюме привязалось к правильной карточке.</p><input id="telemost-url" placeholder="https://telemost.yandex.ru/j/…" style="width:100%;box-sizing:border-box;padding:8px;margin:6px 0"><button id="start-meeting" type="button">Начать встречу</button><div id="meeting-launch-status" class="muted" style="margin-top:6px"></div></section></main><script>
 (() => {
   const state = document.getElementById('state'), content = document.getElementById('content'), title = document.getElementById('title');
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const showError = (e) => { state.className='state error'; state.textContent=e?.message || 'Не удалось получить анализ'; };
+  function setupMeetingLaunch(id) {
+    const input = document.getElementById('telemost-url'), button = document.getElementById('start-meeting'), note = document.getElementById('meeting-launch-status');
+    const supplied = new URLSearchParams(location.search).get('telemost_url');
+    if (supplied) input.value = supplied;
+    button.addEventListener('click', () => {
+      try {
+        const url = new URL(input.value.trim());
+        if (url.protocol !== 'https:' || url.hostname !== 'telemost.yandex.ru' || !/^\/j\/[A-Za-z0-9_-]+$/.test(url.pathname)) throw new Error('Укажите ссылку Telemost вида https://telemost.yandex.ru/j/<id>.');
+        url.searchParams.set('deal_id', id);
+        url.searchParams.set('telemost_url', url.origin + url.pathname);
+        window.open(url.toString(), '_blank', 'noopener');
+        note.textContent = 'Telemost открыт. В нём нажмите «Начать транскрипцию» и выберите звук вкладки.';
+      } catch (e) { note.className='error'; note.textContent=e.message; }
+    });
+  }
   async function run() {
     if (!window.EnvyCrmWidget || typeof window.EnvyCrmWidget.getDeal !== 'function') throw new Error('Откройте расширение внутри карточки сделки EnvyCRM.');
     const fromQuery = new URLSearchParams(location.search).get('deal_id');
@@ -13,6 +28,7 @@
       id = deal?.id || deal?.deal_id;
     }
     if (!id) throw new Error('EnvyCRM не передала ID текущей сделки.');
+    setupMeetingLaunch(id);
     title.textContent = `Подсказка по сделке №${esc(id)}`;
     state.textContent = 'Анализирую карточку, задачи, MAX, письма и звонки…';
     const response = await fetch(`/api/pocket/deals/${encodeURIComponent(id)}/analyze?project_id=default`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({deal:{id}})});
