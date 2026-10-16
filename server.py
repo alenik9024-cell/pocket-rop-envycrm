@@ -29,7 +29,7 @@ MAX_CALL_RECORDING_BYTES = 20 * 1024 * 1024
 CRM_BASE_URL = os.getenv('CRM_BASE_URL', 'https://novikov.envycrm.com/openapi/v1').rstrip('/')
 CRM_API_KEY = os.getenv('CRM_API_KEY', '')
 AI_BASE_URL = os.getenv('AI_BASE_URL', 'https://clodex.xyz/v1').rstrip('/')
-AI_MODEL = os.getenv('AI_MODEL', 'gpt-6-sol')
+AI_MODEL = os.getenv('AI_MODEL', 'gpt-6-luna')
 LOCAL_TRANSCRIPTION_LOCK = Lock()
 LOCAL_WHISPER_MODELS = {}
 AI_TRANSCRIPTION_MODEL = 'whisper-1'
@@ -81,7 +81,7 @@ def read_configuration():
     CRM_BASE_URL = os.getenv('CRM_BASE_URL', 'https://novikov.envycrm.com/openapi/v1').rstrip('/')
     CRM_API_KEY = os.getenv('CRM_API_KEY', '')
     AI_BASE_URL = os.getenv('AI_BASE_URL', 'https://clodex.xyz/v1').rstrip('/')
-    AI_MODEL = os.getenv('AI_MODEL', 'gpt-6-sol')
+    AI_MODEL = os.getenv('AI_MODEL', 'gpt-6-luna')
     AI_TRANSCRIPTION_MODEL = 'whisper-1'
     AI_API_KEY = os.getenv('AI_API_KEY', '')
     AI_ALLOWED_HOSTS = {
