@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ИИ-РОП</title><script src="https://cdn.saas-support.com/crm_assets/build/widget/js/envycrmwidget.min.js"></script><style>body{font:14px Arial,sans-serif;margin:0;color:#17212b;background:#fff}.box{padding:14px}.eyebrow{font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.08em}.state{padding:10px;border-radius:8px;background:#f1f5f9}.hint{border-left:4px solid #16a36a;background:#f0faf4;padding:12px;border-radius:8px;margin-top:10px}.hint b,.hint span{display:block}.hint span{margin-top:6px;font-weight:600}.hint small{display:block;margin-top:7px;color:#64748b}.error{color:#a33;background:#fff1f1}.steps{margin:12px 0 0;padding-left:20px}.steps li{margin:8px 0}.steps b{display:block}.muted{color:#64748b}</style></head><body><main class="box"><div class="eyebrow">ИИ-РОП</div><h3 id="title">Подсказка по сделке</h3><div id="state" class="state">Получаю текущую сделку из EnvyCRM…</div><section id="content"></section></main><script>
+(() => {
+  const state = document.getElementById('state'), content = document.getElementById('content'), title = document.getElementById('title');
+  const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const showError = (e) => { state.className='state error'; state.textContent=e?.message || 'Не удалось получить анализ'; };
+  async function run() {
+    if (!window.EnvyCrmWidget || typeof window.EnvyCrmWidget.getDeal !== 'function') throw new Error('Откройте расширение внутри карточки сделки EnvyCRM.');
+    const deal = await window.EnvyCrmWidget.getDeal();
+    const id = deal?.id || deal?.deal_id;
+    if (!id) throw new Error('EnvyCRM не передала ID текущей сделки.');
+    title.textContent = `Подсказка по сделке №${esc(id)}`;
+    state.textContent = 'Анализирую карточку, задачи, MAX, письма и звонки…';
+    const response = await fetch(`/api/pocket/deals/${encodeURIComponent(id)}/analyze?project_id=default`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({deal:{id}})});
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `Ошибка сервера ${response.status}`);
+    const review = payload.review || {};
+    state.className='state'; state.textContent = `${review.outcome || 'Результат'} • ${review.priority === 'high' ? 'срочно' : review.priority === 'medium' ? 'контроль' : 'по регламенту'}`;
+    const action = review.next_actions?.[0];
+    content.innerHTML = `${action ? `<div class="hint"><b>Следующий шаг</b><span>${esc(action.action)}</span><small>Канал: ${esc(action.channel)} • Срок: ${esc(action.deadline)}<br>Фраза: «${esc(action.phrase)}»<br>Готово, когда: ${esc(action.acceptance || action.success_metric)}</small></div>` : ''}${review.next_call_script?.length ? `<ol class="steps">${review.next_call_script.slice(0,3).map(x=>`<li><b>${esc(x.goal)}</b><span>«${esc(x.phrase)}»</span></li>`).join('')}</ol>` : ''}<p class="muted">Основание: ${esc(review.communication_summary ? Object.entries(review.communication_summary).filter(([,v])=>v).map(([k,v])=>`${k}: ${v}`).join(' • ') : 'данные CRM')}</p>`;
+  }
+  run().catch(showError);
+})();
+</script></body></html>
