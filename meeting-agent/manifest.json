@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "Telemost Meeting Agent MVP",
+  "version": "0.1.0",
+  "description": "Explicit-consent tab-audio recorder for Telemost meetings launched from CRM context.",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://telemost.yandex.ru/*",
+    "https://novikov.envycrm.com/*",
+    "https://rop-193-124-65-29.sslip.io/*",
+    "http://127.0.0.1:8000/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://telemost.yandex.ru/j/*",
+        "https://novikov.envycrm.com/*"
+      ],
+      "js": ["meeting-utils.js", "content.js"],
+      "css": ["panel.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": { "default_title": "Telemost Meeting Agent" }
+}

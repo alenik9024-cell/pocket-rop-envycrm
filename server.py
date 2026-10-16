@@ -1,3 +1,4 @@
+import base64
 import json
 import html
 import os
@@ -10,6 +11,7 @@ import importlib.util
 import shutil
 import subprocess
 import tempfile
+import uuid
 from threading import Lock
 from contextlib import contextmanager
 from datetime import date, timedelta
@@ -179,6 +181,118 @@ def initialize_review_store():
             connection.execute(
                 "ALTER TABLE pocket_reviews ADD COLUMN audit_json TEXT NOT NULL DEFAULT '{}'"
             )
+        connection.execute('''CREATE TABLE IF NOT EXISTS meeting_sessions (
+            id TEXT PRIMARY KEY,
+            deal_id INTEGER NOT NULL,
+            telemost_url TEXT NOT NULL,
+            meeting_id TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'registered',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )''')
+        connection.execute('''CREATE TABLE IF NOT EXISTS meeting_summaries (
+            meeting_id TEXT PRIMARY KEY,
+            summary TEXT NOT NULL,
+            agreements_json TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (meeting_id) REFERENCES meeting_sessions(id) ON DELETE CASCADE
+        )''')
+
+
+def parse_telemost_url(value):
+    """Validate and normalize the only Telemost URL shape supported by the MVP."""
+    raw = str(value or '').strip()
+    parsed = urlparse(raw)
+    if parsed.scheme != 'https' or parsed.hostname != 'telemost.yandex.ru':
+        raise ValueError('Нужна HTTPS-ссылка Telemost вида https://telemost.yandex.ru/j/<id>.')
+    match = re.fullmatch(r'/j/([A-Za-z0-9_-]+)', parsed.path)
+    if not match:
+        raise ValueError('Нужна ссылка Telemost с маршрутом /j/<id>.')
+    normalized = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, parsed.query, ''))
+    return {'url': normalized, 'meeting_id': match.group(1)}
+
+
+def register_meeting(deal_id, telemost_url):
+    try:
+        deal_id = int(deal_id)
+    except (TypeError, ValueError):
+        raise ValueError('deal_id должен быть целым положительным числом.') from None
+    if deal_id <= 0:
+        raise ValueError('deal_id должен быть целым положительным числом.')
+    parsed = parse_telemost_url(telemost_url)
+    session = {
+        'id': uuid.uuid4().hex,
+        'deal_id': deal_id,
+        'telemost_url': parsed['url'],
+        'meeting_id': parsed['meeting_id'],
+        'status': 'registered',
+    }
+    with review_database() as connection:
+        connection.execute(
+            '''INSERT INTO meeting_sessions
+               (id, deal_id, telemost_url, meeting_id, status)
+               VALUES (?, ?, ?, ?, ?)''',
+            (session['id'], session['deal_id'], session['telemost_url'],
+             session['meeting_id'], session['status']),
+        )
+    stored = get_meeting(session['id'])
+    return stored or session
+
+
+def get_meeting(session_id):
+    if not re.fullmatch(r'[a-f0-9]{32}', str(session_id or '')):
+        return None
+    with review_database() as connection:
+        connection.row_factory = sqlite3.Row
+        row = connection.execute(
+            '''SELECT id, deal_id, telemost_url, meeting_id, status,
+                      created_at, updated_at
+               FROM meeting_sessions WHERE id = ?''', (session_id,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def save_meeting_summary(session_id, summary, agreements):
+    session = get_meeting(session_id)
+    if not session:
+        raise ValueError('Сессия встречи не найдена.')
+    summary = str(summary or '').strip()
+    if not summary or len(summary) > 20000:
+        raise ValueError('Итог встречи пуст или слишком длинный.')
+    if not isinstance(agreements, list) or len(agreements) > 100:
+        raise ValueError('agreements должен быть массивом не более 100 пунктов.')
+    cleaned = [str(item).strip() for item in agreements]
+    if any(not item or len(item) > 2000 for item in cleaned):
+        raise ValueError('Каждый пункт agreements должен быть непустым и коротким.')
+    with review_database() as connection:
+        connection.execute(
+            '''INSERT INTO meeting_summaries (meeting_id, summary, agreements_json)
+               VALUES (?, ?, ?)
+               ON CONFLICT(meeting_id) DO UPDATE SET
+                 summary = excluded.summary,
+                 agreements_json = excluded.agreements_json,
+                 created_at = CURRENT_TIMESTAMP''',
+            (session_id, summary, json.dumps(cleaned, ensure_ascii=False)),
+        )
+    return {'meeting_id': session_id, 'summary': summary, 'agreements': cleaned}
+
+
+def get_meeting_summary(session_id):
+    with review_database() as connection:
+        row = connection.execute(
+            'SELECT summary, agreements_json FROM meeting_summaries WHERE meeting_id = ?',
+            (session_id,),
+        ).fetchone()
+    if not row:
+        return None
+    return {'meeting_id': session_id, 'summary': row[0], 'agreements': json.loads(row[1])}
+
+
+def delete_meeting(session_id):
+    with review_database() as connection:
+        connection.execute('DELETE FROM meeting_summaries WHERE meeting_id = ?', (session_id,))
+        result = connection.execute('DELETE FROM meeting_sessions WHERE id = ?', (session_id,))
+    return result.rowcount > 0
 
 
 def json_response(handler, status, payload):
@@ -186,6 +300,19 @@ def json_response(handler, status, payload):
     handler.send_response(status)
     handler.send_header('Content-Type', 'application/json; charset=utf-8')
     handler.send_header('Access-Control-Allow-Origin', 'https://novikov.envycrm.com')
+    handler.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+    handler.send_header('Access-Control-Allow-Headers', 'Content-Type')
+    handler.send_header('Content-Length', str(len(body)))
+    handler.end_headers()
+    handler.wfile.write(body)
+
+
+def meeting_json_response(handler, status, payload):
+    """CORS-safe response for the extension's local meeting registry."""
+    body = json.dumps(payload, ensure_ascii=False).encode('utf-8')
+    handler.send_response(status)
+    handler.send_header('Content-Type', 'application/json; charset=utf-8')
+    handler.send_header('Access-Control-Allow-Origin', '*')
     handler.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
     handler.send_header('Access-Control-Allow-Headers', 'Content-Type')
     handler.send_header('Content-Length', str(len(body)))
@@ -1191,6 +1318,31 @@ def transcribe_audio(audio_url, configuration=None, duration_seconds=None):
         return text, duration
 
 
+def transcribe_audio_bytes(audio, audio_format='webm', duration_seconds=None):
+    """Transcribe meeting audio from memory/temp only; caller must not persist it."""
+    if not audio or len(audio) > MAX_CALL_RECORDING_BYTES:
+        raise RuntimeError('Аудио встречи пустое или превышает лимит 20 МБ.')
+    if not importlib.util.find_spec('faster_whisper'):
+        raise RuntimeError('Локальный faster-whisper не установлен на сервере.')
+    suffix = str(audio_format or 'webm').lower().replace('matroska', 'webm')
+    if suffix not in ('webm', 'ogg', 'mp3', 'wav', 'm4a', 'flac'):
+        suffix = 'webm'
+    with tempfile.TemporaryDirectory(prefix='pocket-meeting-') as directory:
+        path = Path(directory) / f'meeting.{suffix}'
+        path.write_bytes(audio)
+        from faster_whisper import WhisperModel
+        model_name = os.getenv('LOCAL_WHISPER_MODEL', 'base').strip()
+        if model_name not in ('base', 'small'):
+            raise RuntimeError('LOCAL_WHISPER_MODEL должен быть base или small.')
+        with LOCAL_TRANSCRIPTION_LOCK:
+            if model_name not in LOCAL_WHISPER_MODELS:
+                LOCAL_WHISPER_MODELS[model_name] = WhisperModel(model_name, device='auto', compute_type='int8')
+            segments, info = LOCAL_WHISPER_MODELS[model_name].transcribe(str(path), language='ru')
+            text = ' '.join(segment.text.strip() for segment in segments).strip()
+            detected_duration = parse_duration_seconds(info.duration)
+        if not text:
+            raise RuntimeError('Распознавание не вернуло текст встречи.')
+        return text, detected_duration or parse_duration_seconds(duration_seconds)
 def transcript_for_deal(audio_url, deal_id, project_id, configuration, duration=None):
     recording_hash = hashlib.sha256(audio_url.encode('utf-8')).hexdigest()
     with review_database() as connection:
@@ -1623,13 +1775,29 @@ class PlatformHandler(SimpleHTTPRequestHandler):
 
     def do_OPTIONS(self):
         self.send_response(204)
-        self.send_header('Access-Control-Allow-Origin', 'https://novikov.envycrm.com')
+        self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.end_headers()
 
     def do_GET(self):
         parsed = urlparse(self.path)
+        summary_match = re.fullmatch(r'/api/meetings/([a-f0-9]{32})/summary', parsed.path)
+        if summary_match:
+            summary = get_meeting_summary(summary_match.group(1))
+            if not summary:
+                meeting_json_response(self, 404, {'error': 'Итог встречи не найден.'})
+                return
+            meeting_json_response(self, 200, summary)
+            return
+        meeting_match = re.fullmatch(r'/api/meetings/([a-f0-9]{32})', parsed.path)
+        if meeting_match:
+            session = get_meeting(meeting_match.group(1))
+            if not session:
+                meeting_json_response(self, 404, {'error': 'Сессия встречи не найдена.'})
+                return
+            meeting_json_response(self, 200, session)
+            return
         if parsed.path == '/api/settings/ai':
             read_configuration()
             json_response(self, 200, {
@@ -1671,6 +1839,27 @@ class PlatformHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urlparse(self.path)
+        summary_match = re.fullmatch(r'/api/meetings/([a-f0-9]{32})/summary', parsed.path)
+        if summary_match:
+            try:
+                length = int(self.headers.get('Content-Length', '0'))
+                payload = json.loads(self.rfile.read(length).decode('utf-8')) if length else {}
+                result = save_meeting_summary(
+                    summary_match.group(1), payload.get('summary'), payload.get('agreements')
+                )
+                meeting_json_response(self, 201, result)
+            except (ValueError, json.JSONDecodeError, TypeError) as error:
+                meeting_json_response(self, 400, {'error': str(error)})
+            return
+        if parsed.path == '/api/meetings/register':
+            try:
+                length = int(self.headers.get('Content-Length', '0'))
+                payload = json.loads(self.rfile.read(length).decode('utf-8')) if length else {}
+                session = register_meeting(payload.get('deal_id'), payload.get('telemost_url'))
+                meeting_json_response(self, 201, session)
+            except (ValueError, json.JSONDecodeError, TypeError) as error:
+                meeting_json_response(self, 400, {'error': str(error)})
+            return
         if parsed.path in ('/api/settings/ai', '/api/competitor-scan/analyze'):
             try:
                 length = int(self.headers.get('Content-Length', '0'))
@@ -1824,6 +2013,17 @@ class PlatformHandler(SimpleHTTPRequestHandler):
             diagnostic_log(f'analysis crashed: deal_id={deal_id}: {type(error).__name__}: {error}')
             error_response(self, RuntimeError(f'Внутренняя ошибка анализа сделки: {error}'), 500)
         return
+
+    def do_DELETE(self):
+        parsed = urlparse(self.path)
+        meeting_match = re.fullmatch(r'/api/meetings/([a-f0-9]{32})', parsed.path)
+        if not meeting_match:
+            meeting_json_response(self, 404, {'error': 'Маршрут не найден.'})
+            return
+        if not delete_meeting(meeting_match.group(1)):
+            meeting_json_response(self, 404, {'error': 'Сессия встречи не найдена.'})
+            return
+        meeting_json_response(self, 200, {'ok': True, 'deleted': meeting_match.group(1)})
 
     def log_message(self, format, *args):
         message = format % args

@@ -1,0 +1,11 @@
+#meeting-agent-panel { position: fixed; z-index: 2147483647; top: 16px; right: 16px; width: 320px; padding: 16px; color: #f7f7fb; background: #1f2430; border: 1px solid #5d6b86; border-radius: 12px; box-shadow: 0 8px 30px #0008; font: 14px/1.4 system-ui, sans-serif; }
+#meeting-agent-panel * { box-sizing: border-box; }
+#meeting-agent-panel h3 { margin: 0 0 8px; font-size: 16px; }
+#meeting-agent-panel p { margin: 6px 0 12px; color: #cad2e3; }
+#meeting-agent-panel label { display: block; margin: 8px 0 4px; color: #cad2e3; }
+#meeting-agent-panel input { width: 100%; padding: 8px; color: inherit; background: #111521; border: 1px solid #56647d; border-radius: 6px; }
+#meeting-agent-panel button { margin-top: 12px; padding: 9px 12px; color: #fff; background: #3878e8; border: 0; border-radius: 7px; cursor: pointer; }
+#meeting-agent-panel button.secondary { margin-left: 6px; background: #4a5365; }
+#meeting-agent-panel button:disabled { opacity: .55; cursor: wait; }
+#meeting-agent-status { min-height: 20px; margin-top: 10px; color: #9fe3b1; }
+#meeting-agent-status.error { color: #ffadad; }
