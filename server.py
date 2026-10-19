@@ -289,6 +289,32 @@ def get_meeting_summary(session_id):
     return {'meeting_id': session_id, 'summary': row[0], 'agreements': json.loads(row[1])}
 
 
+def meeting_chunk_path(session_id):
+    if not re.fullmatch(r'[a-f0-9]{32}', str(session_id or '')):
+        raise ValueError('Недопустимый идентификатор встречи.')
+    root = Path(tempfile.gettempdir()) / 'pocket-meeting-chunks'
+    root.mkdir(parents=True, exist_ok=True)
+    return root / f'{session_id}.webm'
+
+
+def append_meeting_chunk(session_id, audio):
+    if not audio or len(audio) > 4 * 1024 * 1024:
+        raise ValueError('Фрагмент аудио пуст или превышает лимит 4 МБ.')
+    path = meeting_chunk_path(session_id)
+    if path.exists() and path.stat().st_size + len(audio) > 200 * 1024 * 1024:
+        raise ValueError('Суммарная запись встречи превышает лимит 200 МБ.')
+    with path.open('ab') as handle:
+        handle.write(audio)
+    return path.stat().st_size
+
+
+def consume_meeting_chunks(session_id):
+    path = meeting_chunk_path(session_id)
+    if not path.is_file():
+        raise ValueError('Фрагменты аудио встречи не найдены.')
+    audio = path.read_bytes()
+    path.unlink(missing_ok=True)
+    return audio
 def get_meeting_summaries_for_deal(deal_id):
     with review_database() as connection:
         connection.row_factory = sqlite3.Row
@@ -308,6 +334,23 @@ def delete_meeting(session_id):
         connection.execute('DELETE FROM meeting_summaries WHERE meeting_id = ?', (session_id,))
         result = connection.execute('DELETE FROM meeting_sessions WHERE id = ?', (session_id,))
     return result.rowcount > 0
+
+
+def process_meeting_audio(session_id, audio, audio_format='webm'):
+    session = get_meeting(session_id)
+    if not session or not audio:
+        raise ValueError('Сессия встречи или аудио не найдены.')
+    connector = crm_connector('default')
+    deal = connector.get_deal(session['deal_id'])
+    timeline = connector.get_timeline(session['deal_id'])
+    transcript, _duration = transcribe_audio_bytes(audio, audio_format)
+    result = analyze_deal_evidence(deal, timeline, transcript)
+    result['transcript'] = ''
+    review = save_review(session['deal_id'], result, 'default')
+    summary = result.get('deal_summary') or result.get('analysis') or 'Резюме встречи сформировано.'
+    agreements = result.get('agreements') if isinstance(result.get('agreements'), list) else []
+    saved = save_meeting_summary(session['id'], summary, agreements)
+    return {'meeting_id': session['id'], 'deal_id': session['deal_id'], 'summary': saved, 'review': review}
 
 
 def json_response(handler, status, payload):
@@ -1912,6 +1955,26 @@ class PlatformHandler(SimpleHTTPRequestHandler):
                 meeting_json_response(self, 201, session)
             except (ValueError, json.JSONDecodeError, TypeError) as error:
                 meeting_json_response(self, 400, {'error': str(error)})
+            return
+        chunk_match = re.fullmatch(r'/api/meetings/([a-f0-9]{32})/chunks', parsed.path)
+        if chunk_match:
+            try:
+                length = int(self.headers.get('Content-Length', '0'))
+                if length <= 0 or length > 6 * 1024 * 1024: raise ValueError('Фрагмент слишком большой.')
+                payload = json.loads(self.rfile.read(length).decode('utf-8'))
+                audio = base64.b64decode(str(payload.get('audio_base64') or ''), validate=True)
+                size = append_meeting_chunk(chunk_match.group(1), audio)
+                meeting_json_response(self, 202, {'ok': True, 'bytes': size})
+            except (ValueError, json.JSONDecodeError, TypeError, binascii.Error) as error:
+                meeting_json_response(self, 400, {'error': str(error)})
+            return
+        finalize_match = re.fullmatch(r'/api/meetings/([a-f0-9]{32})/finalize', parsed.path)
+        if finalize_match:
+            try:
+                audio = consume_meeting_chunks(finalize_match.group(1))
+                meeting_json_response(self, 201, process_meeting_audio(finalize_match.group(1), audio))
+            except (ValueError, RuntimeError, HTTPError, URLError) as error:
+                meeting_json_response(self, 502, {'error': str(error)})
             return
         audio_match = re.fullmatch(r'/api/meetings/([a-f0-9]{32})/audio', parsed.path)
         if audio_match:
