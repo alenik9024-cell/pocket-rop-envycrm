@@ -2,17 +2,16 @@
 <html lang="ru"><head><meta charset="utf-8"><title>Сводка отдела продаж</title><script src="https://cdn.saas-support.com/crm_assets/build/widget/js/envycrmwidget.min.js"></script></head><body><script>
 (() => {
   const ADMIN_ID = '796108';
+  const APP = 'https://rop-193-124-65-29.sslip.io/admin-summary.html?admin_user_id=' + ADMIN_ID;
   const w = window.EnvyCrmWidget;
   if (!w || typeof w.init !== 'function') return;
-  w.init({
-    'deal-btn': function () {
-      const userId = ADMIN_ID;
-      const url = 'https://rop-193-124-65-29.sslip.io/admin-summary.html?admin_user_id=' + encodeURIComponent(userId);
-      const content = '<iframe src="' + url + '" style="width:100%;height:calc(100vh - 70px);min-height:650px;border:0"></iframe>';
-      try { if (w.openPage) return w.openPage({content}); } catch (_) {}
-      if (w.openModal) return w.openModal({title:'Сводка отдела продаж', content, width:1200});
-      window.open(url, '_blank', 'noopener');
-    }
-  });
+  function openReport() {
+    const iframe = '<iframe src="' + APP + '" style="width:100%;height:calc(100vh - 70px);min-height:720px;border:0"></iframe>';
+    try { if (typeof w.openPage === 'function') { const opened = w.openPage({content: iframe}); if (opened && typeof opened.catch === 'function') opened.catch(() => window.open(APP, '_blank', 'noopener')); return; } } catch (_) {}
+    try { if (typeof w.openModal === 'function') { w.openModal({title:'Сводка отдела продаж', content: iframe, width:1400}); return; } } catch (_) {}
+    window.open(APP, '_blank', 'noopener');
+  }
+  window.addEventListener('message', event => { if (event.data && event.data.type === 'sales-summary:open') openReport(); }, false);
+  w.init({'deal-btn': function () { return [{title:'Сводка отдела продаж',name:'sales-summary-admin',clickEventName:'sales-summary:open',position:['first'],styles:{color:'#fff','background-color':'#2563eb'},icon:'md-assessment'}]; }});
 })();
 </script></body></html>
