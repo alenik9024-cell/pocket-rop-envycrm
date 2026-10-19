@@ -672,6 +672,20 @@ def fresh_timeline(timeline, previous_review):
 
 def date_range(period):
     today = date.today()
+    if str(period).startswith('custom:'):
+        parts = str(period).split(':')
+        if len(parts) != 3:
+            raise ValueError('Произвольный период должен иметь формат YYYY-MM-DD:YYYY-MM-DD.')
+        try:
+            start = date.fromisoformat(parts[1])
+            end = date.fromisoformat(parts[2])
+        except ValueError:
+            raise ValueError('Дата периода должна быть в формате YYYY-MM-DD.') from None
+        if start > end:
+            raise ValueError('Начальная дата не может быть позже конечной.')
+        if (end - start).days > 366:
+            raise ValueError('Произвольный период не может быть длиннее 366 дней.')
+        return start.isoformat(), end.isoformat()
     if period == '7d':
         start = today - timedelta(days=6)
     elif period == '30d':
