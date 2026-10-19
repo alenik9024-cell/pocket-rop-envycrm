@@ -289,6 +289,20 @@ def get_meeting_summary(session_id):
     return {'meeting_id': session_id, 'summary': row[0], 'agreements': json.loads(row[1])}
 
 
+def get_meeting_summaries_for_deal(deal_id):
+    with review_database() as connection:
+        connection.row_factory = sqlite3.Row
+        rows = connection.execute('''SELECT s.id, s.meeting_id, s.created_at, m.summary, m.agreements_json
+            FROM meeting_sessions s JOIN meeting_summaries m ON m.meeting_id = s.id
+            WHERE s.deal_id = ? ORDER BY m.created_at DESC''', (int(deal_id),)).fetchall()
+    result = []
+    for row in rows:
+        try: agreements = json.loads(row['agreements_json'] or '[]')
+        except json.JSONDecodeError: agreements = []
+        result.append({'meeting_id': row['meeting_id'], 'created_at': row['created_at'], 'summary': row['summary'], 'agreements': agreements})
+    return result
+
+
 def delete_meeting(session_id):
     with review_database() as connection:
         connection.execute('DELETE FROM meeting_summaries WHERE meeting_id = ?', (session_id,))
@@ -1846,6 +1860,10 @@ class PlatformHandler(SimpleHTTPRequestHandler):
                 error_response(self, error, 400)
             except RuntimeError as error:
                 error_response(self, error)
+            return
+        meetings_match = re.fullmatch(r'/api/pocket/deals/(\d+)/meetings', parsed.path)
+        if meetings_match:
+            json_response(self, 200, {'meetings': get_meeting_summaries_for_deal(int(meetings_match.group(1)))})
             return
         review_match = re.fullmatch(r'/api/pocket/deals/(\d+)/review', parsed.path)
         if review_match:

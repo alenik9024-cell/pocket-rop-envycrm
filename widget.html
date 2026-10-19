@@ -45,10 +45,13 @@
       setupMeetingLaunch(id); title.textContent = `Подсказка по сделке №${esc(id)}`;
       try {
         const saved = await fetch(`${API}/api/pocket/deals/${encodeURIComponent(id)}/review?project_id=default`);
-        if (saved.ok) {
-          const review = (await saved.json()).review || {};
-          state.textContent = 'Сохранённый анализ • AI повторно не запускался';
-          content.innerHTML = `<section><b>Содержание звонка / встречи</b><p>${esc(review.call_summary || 'Не выделено')}</p></section><section><b>Резюме сделки</b><p>${esc(review.deal_summary || review.analysis || '')}</p></section><section><b>О чём договорились</b><p>${esc((review.agreements || []).join(' • '))}</p></section><section><b>Следующий шаг</b><p>${esc(review.next_step?.action || review.recommendation || '')}</p></section>`;
+        {
+          const review = saved.ok ? ((await saved.json()).review || {}) : {};
+          state.textContent = saved.ok ? 'Сохранённый анализ • AI повторно не запускался' : 'Анализ ещё не запускался';
+          const meetingsResponse = await fetch(`${API}/api/pocket/deals/${encodeURIComponent(id)}/meetings`);
+          const meetings = meetingsResponse.ok ? ((await meetingsResponse.json()).meetings || []) : [];
+          const meetingHtml = meetings.length ? meetings.map(m => `<section><b>Итоги встречи</b><p>${esc(m.summary)}</p><p><b>Договорённости:</b> ${esc((m.agreements || []).join(' • '))}</p></section>`).join('') : '<section><b>Итоги встречи</b><p class="muted">Сохранённого итога встречи нет. Сначала завершите транскрибацию в Telemost.</p></section>';
+          content.innerHTML = meetingHtml + `<section><b>Содержание звонка / встречи</b><p>${esc(review.call_summary || 'Не выделено')}</p></section><section><b>Резюме сделки</b><p>${esc(review.deal_summary || review.analysis || '')}</p></section><section><b>О чём договорились</b><p>${esc((review.agreements || []).join(' • '))}</p></section><section><b>Следующий шаг</b><p>${esc(review.next_step?.action || review.recommendation || '')}</p></section>`;
         }
       } catch (_) {}
       return;
