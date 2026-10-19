@@ -592,6 +592,27 @@ def get_review_map(deal_ids, project_id='default'):
     return reviews
 
 
+def get_saved_review(deal_id, project_id='default'):
+    return get_review_map([int(deal_id)], project_id).get(int(deal_id))
+
+
+def event_identity(event):
+    if not isinstance(event, dict):
+        return ''
+    stable = {key: event.get(key) for key in ('id', 'event_id', 'occurred_at', 'category', 'text', 'content', '_recording_url') if event.get(key) is not None}
+    return hashlib.sha256(json.dumps(stable, ensure_ascii=False, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def fresh_timeline(timeline, previous_review):
+    if not isinstance(previous_review, dict):
+        return timeline, True
+    old_ids = {event_identity(item) for item in (previous_review.get('timeline_events') or [])}
+    fresh = [item for item in (timeline.get('events') or []) if event_identity(item) not in old_ids]
+    result = dict(timeline)
+    result['events'] = fresh
+    return result, bool(fresh)
+
+
 def date_range(period):
     today = date.today()
     if period == '7d':
@@ -1734,7 +1755,7 @@ def save_review(deal_id, result, project_id='default'):
                 json.dumps({
                     key: result[key]
                     for key in (
-                        'evidence_mode', 'evidence', 'card_gaps', 'next_actions', 'deal_summary', 'agreements', 'completed_actions', 'next_step', 'client_phrase', 'meeting_status', 'timeline_events', 'contact_status', 'next_contact_policy', 'next_call_script', 'call_audit_status', 'call_summary', 'scores', 'strengths',
+                        'evidence_mode', 'historical_context', 'evidence', 'card_gaps', 'next_actions', 'deal_summary', 'agreements', 'completed_actions', 'next_step', 'client_phrase', 'meeting_status', 'timeline_events', 'contact_status', 'next_contact_policy', 'next_call_script', 'call_audit_status', 'call_summary', 'scores', 'strengths',
                         'improvements', 'action_plan', 'closing_steps', 'status_badge', 'control_points', 'rop_feedback', 'customer_need', 'decision_criteria',
                         'unresolved_questions', 'objections', 'deal_decision',
                         'decision_rationale', 'next_contact_strategy', 'next_contact_script',
@@ -1755,7 +1776,7 @@ def save_review(deal_id, result, project_id='default'):
         **{
             key: result[key]
             for key in (
-                'evidence_mode', 'evidence', 'card_gaps', 'next_actions', 'deal_summary', 'agreements', 'completed_actions', 'next_step', 'client_phrase', 'meeting_status', 'timeline_events', 'contact_status', 'next_contact_policy', 'next_call_script', 'call_audit_status', 'call_summary', 'scores', 'strengths',
+                'evidence_mode', 'historical_context', 'evidence', 'card_gaps', 'next_actions', 'deal_summary', 'agreements', 'completed_actions', 'next_step', 'client_phrase', 'meeting_status', 'timeline_events', 'contact_status', 'next_contact_policy', 'next_call_script', 'call_audit_status', 'call_summary', 'scores', 'strengths',
                 'improvements', 'action_plan', 'closing_steps', 'status_badge', 'control_points', 'rop_feedback', 'customer_need', 'decision_criteria',
                 'unresolved_questions', 'objections', 'deal_decision',
                 'decision_rationale', 'next_contact_strategy', 'next_contact_script',
@@ -1825,6 +1846,15 @@ class PlatformHandler(SimpleHTTPRequestHandler):
                 error_response(self, error, 400)
             except RuntimeError as error:
                 error_response(self, error)
+            return
+        review_match = re.fullmatch(r'/api/pocket/deals/(\d+)/review', parsed.path)
+        if review_match:
+            read_configuration()
+            review = get_saved_review(int(review_match.group(1)), parse_qs(parsed.query).get('project_id', ['default'])[0])
+            if not review:
+                json_response(self, 404, {'error': 'Сохранённый анализ не найден.'})
+            else:
+                json_response(self, 200, {'review': review})
             return
         timeline_match = re.fullmatch(r'/api/pocket/deals/(\d+)/timeline', parsed.path)
         if timeline_match:
@@ -2028,7 +2058,13 @@ class PlatformHandler(SimpleHTTPRequestHandler):
             timeline = connector.get_timeline(deal_id)
             if timeline.get('status') != 'available':
                 raise RuntimeError(timeline.get('reason') or 'История сделки недоступна.')
-            recordings = call_recordings_from_timeline(timeline, deal)
+            previous_review = get_saved_review(deal_id, project_id)
+            analysis_timeline, has_fresh_actions = fresh_timeline(timeline, previous_review)
+            if previous_review and not has_fresh_actions:
+                diagnostic_log(f'analysis skipped: deal_id={deal_id}, no fresh CRM actions')
+                json_response(self, 200, {'project_id': project_id, 'deal_id': deal_id, 'review': previous_review, 'reused': True})
+                return
+            recordings = call_recordings_from_timeline(analysis_timeline, deal)
             transcripts = []
             for occurred_at, record_link, duration in recordings:
                 diagnostic_log(f'recording reference found: deal_id={deal_id}, occurred_at={occurred_at}')
@@ -2042,7 +2078,17 @@ class PlatformHandler(SimpleHTTPRequestHandler):
                 f"Звонок {item['occurred_at']}: {item['transcript']}" for item in transcripts
             ) or None
             diagnostic_log(f'AI evidence analysis start: deal_id={deal_id}, calls={len(recordings)}, transcribed={len(transcripts)}')
-            result = analyze_deal_evidence(deal, timeline, transcript)
+            result = analyze_deal_evidence(deal, analysis_timeline, transcript)
+            if previous_review:
+                old_transcript = str(previous_review.get('transcript') or '').strip()
+                new_transcript = str(result.get('transcript') or '').strip()
+                result['transcript'] = '\\n\\n'.join(item for item in (old_transcript, new_transcript) if item)
+                result['timeline_events'] = public_timeline(timeline).get('events', [])
+                result['historical_context'] = {
+                    'previous_deal_summary': previous_review.get('deal_summary', ''),
+                    'previous_agreements': previous_review.get('agreements', []),
+                    'previous_completed_actions': previous_review.get('completed_actions', []),
+                }
             diagnostic_log(f'AI evidence analysis completed: deal_id={deal_id}')
             review = save_review(deal_id, result, project_id)
             json_response(self, 200, {'project_id': project_id, 'deal_id': deal_id, 'review': review})
