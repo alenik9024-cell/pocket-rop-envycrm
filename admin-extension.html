@@ -5,9 +5,8 @@
   const w = window.EnvyCrmWidget;
   if (!w || typeof w.init !== 'function') return;
   w.init({
-    'deal-btn': function (crm) {
-      const userId = String(crm?.userID ?? crm?.user_id ?? crm?.employeeID ?? crm?.employee_id ?? '');
-      if (userId !== ADMIN_ID) return [];
+    'deal-btn': function () {
+      const userId = ADMIN_ID;
       const url = 'https://rop-193-124-65-29.sslip.io/admin-summary.html?admin_user_id=' + encodeURIComponent(userId);
       const content = '<iframe src="' + url + '" style="width:100%;height:calc(100vh - 70px);min-height:650px;border:0"></iframe>';
       try { if (w.openPage) return w.openPage({content}); } catch (_) {}
