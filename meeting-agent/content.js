@@ -41,6 +41,12 @@
     let current;
     try { current = MeetingAgentUtils.parseTelemostUrl(location.href); }
     catch (error) { return; }
+    const contextFromQuery = new URL(location.href).searchParams.get('deal_id');
+    const suppliedTelemost = new URL(location.href).searchParams.get('telemost_url');
+    if (contextFromQuery && suppliedTelemost) {
+      try { const parsedContext = MeetingAgentUtils.contextFromLocation(location); await setContext(parsedContext); }
+      catch (_) {}
+    }
     const context = await getContext();
     const root = panel('Транскрипция встречи', 'Транскрипция активируется вашим нажатием; браузер может отдельно запросить техническое разрешение на аудио.');
     const fields = root.querySelector('#meeting-agent-fields');
@@ -50,7 +56,8 @@
     const label = document.createElement('label'); label.textContent = 'CRM deal_id'; label.append(dealInput); fields.append(label);
     const start = document.createElement('button'); start.textContent = 'Начать транскрипцию'; fields.append(start);
     const stop = document.createElement('button'); stop.textContent = 'Остановить'; stop.className = 'secondary'; stop.disabled = true; fields.append(stop);
-    if (!context || context.meetingId !== current.meetingId) status(root, 'Произвольная ссылка не содержит CRM-сделку. Введите deal_id или откройте ссылку из CRM.', true);
+    const isFromCrm = Boolean(contextFromQuery && suppliedTelemost);
+    if (!context || context.meetingId !== current.meetingId) status(root, isFromCrm ? 'Контекст сделки не распознан. Введите deal_id вручную.' : 'Произвольная ссылка не содержит CRM-сделку. Введите deal_id или откройте ссылку из CRM.', true);
 
     start.addEventListener('click', async () => {
       start.disabled = true;
